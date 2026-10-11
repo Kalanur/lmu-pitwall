@@ -58,8 +58,11 @@ export default function Settings({ open, onClose }: Props) {
     if (open) setSavedTracks(getSavedTracks())
   }, [open])
 
-  // Port "Save & Restart" state
+  // Connection port and internal server port are independent.
   const [portInput, setPortInput] = useState<string>(() => s.wsPort > 0 ? String(s.wsPort) : '')
+  const [serverPortInput, setServerPortInput] = useState('')
+  const [followServerPort, setFollowServerPort] = useState(false)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const [portBusy, setPortBusy] = useState(false)
   const [portStatus, setPortStatus] = useState<string | null>(null)
 
@@ -68,13 +71,27 @@ export default function Settings({ open, onClose }: Props) {
     setPortInput(s.wsPort > 0 ? String(s.wsPort) : '')
   }, [s.wsPort])
 
-  async function saveAndRestart() {
-    const newPort = portInput === '' ? 0 : parseInt(portInput, 10)
-    if (portInput !== '' && (isNaN(newPort) || newPort < 1024 || newPort > 65535)) {
-      setPortStatus('Port must be between 1024 and 65535.')
+  function applyConnectionPort() {
+    const port = portInput === '' ? 0 : Number(portInput)
+    if (portInput !== '' && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      setConnectionError('Connection port must be between 1 and 65535, or empty for auto.')
       return
     }
-    const targetPort = newPort > 0 ? newPort : parseInt(window.location.port || '9000', 10)
+    s.update({ wsPort: port })
+    // Reconnect every consumer to the saved target.
+    window.location.reload()
+  }
+
+  async function saveAndRestart() {
+    const targetPort = Number(serverPortInput)
+    if (!Number.isInteger(targetPort) || targetPort < 1024 || targetPort > 65535) {
+      setPortStatus('Enter an internal server port between 1024 and 65535.')
+      return
+    }
+    // Only redirect when the user explicitly chooses direct access to this origin.
+    const redirectUrl = followServerPort && bridgeHttpBase() === window.location.origin
+      ? new URL(window.location.href)
+      : null
     setPortBusy(true)
     setPortStatus(null)
     try {
@@ -84,12 +101,14 @@ export default function Settings({ open, onClose }: Props) {
         body: JSON.stringify({ port: targetPort }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      // Keep wsPort at 0 (auto) — frontend follows the URL port.
-      s.update({ wsPort: 0 })
-      const url = new URL(window.location.href)
-      url.port = String(targetPort)
-      setTimeout(() => { window.location.href = url.toString() }, 1500)
-      setPortStatus('Restarting…')
+      if (redirectUrl) {
+        redirectUrl.port = String(targetPort)
+        s.update({ wsPort: 0 })
+        setTimeout(() => { window.location.href = redirectUrl.toString() }, 1500)
+        setPortStatus('Restart requested. Opening the new direct address…')
+        return
+      }
+      setPortStatus(`Restart requested on internal port ${targetPort}. With a reverse proxy, update its upstream port and reload this page. For direct access, open the bridge at its new port.`)
     } catch (e) {
       setPortStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
       setPortBusy(false)
@@ -230,58 +249,63 @@ export default function Settings({ open, onClose }: Props) {
               <input
                 type="text"
                 value={s.wsHost}
+                disabled={portBusy}
                 placeholder={`auto (${window.location.hostname})`}
                 onChange={(e) => s.update({ wsHost: e.target.value })}
                 style={inputStyle}
               />
             </Row>
-            <Row label="Bridge Port">
+            <Row label="Connection Port">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
-                  type="number"
-                  value={portInput}
-                  min={1024}
-                  max={65535}
-                  placeholder="auto"
-                  onChange={(e) => { setPortInput(e.target.value); setPortStatus(null) }}
-                  style={{ ...inputStyle, width: 80 }}
-                  disabled={portBusy}
+                  type="number" value={portInput} min={1} max={65535} placeholder="auto"
+                  onChange={(e) => { setPortInput(e.target.value); setConnectionError(null) }}
+                  style={{ ...inputStyle, width: 80 }} disabled={portBusy}
                 />
-                <button
-                  onClick={saveAndRestart}
-                  disabled={portBusy}
-                  style={{
-                    ...btnStyle,
-                    background: portBusy ? colors.border : colors.primary,
-                    color: portBusy ? colors.textMuted : '#000',
-                    fontFamily: fonts.body,
-                    fontSize: 13,
-                    padding: '4px 10px',
-                    cursor: portBusy ? 'not-allowed' : 'pointer',
-                    borderRadius: 4,
-                    border: 'none',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {portBusy ? 'Restarting…' : 'Save & Restart'}
+                <button onClick={applyConnectionPort} disabled={portBusy} style={btnStyle}>
+                  Apply & Reload
                 </button>
               </div>
-              {portStatus && (
-                <p style={{
-                  fontFamily: fonts.body,
-                  fontSize: 13,
-                  color: portStatus.startsWith('Error') ? '#f87171' : colors.textMuted,
-                  margin: '4px 0 0',
-                }}>
-                  {portStatus}
-                </p>
-              )}
+              {connectionError && <p role="alert" style={{ color: '#f87171' }}>{connectionError}</p>}
             </Row>
             <p style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted, margin: 0 }}>
-              Leave port empty to auto-follow the bridge URL. "Save & Restart" writes the port to the bridge config and restarts.
+              Browser connection only. Leave host and port empty to use this page's address.
+              For HTTPS reverse proxies, keep the port on auto or use the public HTTPS port.
+              Applying this port does not restart the bridge.
             </p>
           </Section>
 
+          <Section title="Bridge Server">
+            <Row label="After Restart">
+              <label style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted }}>
+                <input
+                  type="checkbox"
+                  checked={followServerPort && bridgeHttpBase() === window.location.origin}
+                  disabled={portBusy || bridgeHttpBase() !== window.location.origin}
+                  onChange={(e) => setFollowServerPort(e.target.checked)}
+                />
+                {' '}Open this dashboard at the new port (direct access only; leave off behind a reverse proxy)
+              </label>
+            </Row>
+            <Row label="New Internal Port">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="number" value={serverPortInput} min={1024} max={65535} placeholder="e.g. 9000"
+                  onChange={(e) => { setServerPortInput(e.target.value); setPortStatus(null) }}
+                  style={{ ...inputStyle, width: 100 }} disabled={portBusy}
+                />
+                <button onClick={saveAndRestart} disabled={portBusy || serverPortInput === ''} style={btnStyle}>
+                  {portBusy ? 'Restart requested' : 'Change Server Port & Restart'}
+                </button>
+              </div>
+              {portStatus && <p role="status" style={{ color: colors.textMuted }}>{portStatus}</p>}
+            </Row>
+            <p style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted, margin: 0 }}>
+              Changes the bridge's listening port and disconnects all clients. With Nginx Proxy Manager,
+              also change the upstream port there. The public connection settings and page address stay unchanged unless direct access is selected.
+              For direct access, select the option above or open the new address manually.
+            </p>
+          </Section>
           {/* Theme */}
           <Section title="Theme">
             <Row label="Primary color">
