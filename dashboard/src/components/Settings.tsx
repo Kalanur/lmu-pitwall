@@ -243,69 +243,69 @@ export default function Settings({ open, onClose }: Props) {
             </Row>
           </Section>
 
-          {/* Connection */}
           <Section title="Connection">
-            <Row label="Bridge Host">
+            <label htmlFor="bridge-host" style={connectionLabelStyle}>Bridge Host</label>
+            <input
+              id="bridge-host" type="text" value={s.wsHost} disabled={portBusy}
+              placeholder="auto" onChange={(e) => s.update({ wsHost: e.target.value })}
+              style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
+            />
+            <p style={{ ...connectionHelpStyle, overflowWrap: 'anywhere' }}>
+              Auto host: {window.location.hostname}
+            </p>
+            <label htmlFor="connection-port" style={connectionLabelStyle}>Connection Port</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <input
-                type="text"
-                value={s.wsHost}
-                disabled={portBusy}
-                placeholder={`auto (${window.location.hostname})`}
-                onChange={(e) => s.update({ wsHost: e.target.value })}
-                style={inputStyle}
+                id="connection-port" type="number" value={portInput} min={1} max={65535} placeholder="auto"
+                onChange={(e) => { setPortInput(e.target.value); setConnectionError(null) }}
+                style={{ ...inputStyle, width: 110, flexShrink: 0, boxSizing: 'border-box' }} disabled={portBusy}
               />
-            </Row>
-            <Row label="Connection Port">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="number" value={portInput} min={1} max={65535} placeholder="auto"
-                  onChange={(e) => { setPortInput(e.target.value); setConnectionError(null) }}
-                  style={{ ...inputStyle, width: 80 }} disabled={portBusy}
-                />
-                <button onClick={applyConnectionPort} disabled={portBusy} style={btnStyle}>
-                  Apply & Reload
-                </button>
-              </div>
-              {connectionError && <p role="alert" style={{ color: '#f87171' }}>{connectionError}</p>}
-            </Row>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted, margin: 0 }}>
-              Browser connection only. Leave host and port empty to use this page's address.
-              For HTTPS reverse proxies, keep the port on auto or use the public HTTPS port.
-              Applying this port does not restart the bridge.
+              <button onClick={applyConnectionPort} disabled={portBusy} style={connectionButtonStyle}>
+                Apply
+              </button>
+            </div>
+            {connectionError && <p role="alert" style={{ ...connectionHelpStyle, color: '#f87171' }}>{connectionError}</p>}
+            <p style={connectionHelpStyle}>
+              Empty means automatic. Apply reloads the dashboard; the bridge keeps running.
+              Behind a reverse proxy, use Auto or its public port.
             </p>
           </Section>
 
-          <Section title="Bridge Server">
-            <Row label="After Restart">
-              <label style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted }}>
+          <details style={{ marginBottom: 24 }}>
+            <summary style={{ ...connectionLabelStyle, cursor: 'pointer', padding: '8px 0' }}>
+              Advanced: Bridge Server
+            </summary>
+            <div style={{ display: 'grid', gap: 10, paddingTop: 12 }}>
+              <label htmlFor="server-port" style={connectionLabelStyle}>New Internal Port</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <input
-                  type="checkbox"
+                  id="server-port" type="number" value={serverPortInput} min={1024} max={65535} placeholder="9000"
+                  onChange={(e) => { setServerPortInput(e.target.value); setPortStatus(null) }}
+                  style={{ ...inputStyle, width: 110, flexShrink: 0, boxSizing: 'border-box' }} disabled={portBusy}
+                />
+                <button onClick={saveAndRestart} disabled={portBusy || serverPortInput === ''} style={connectionButtonStyle}>
+                  {portBusy ? 'Restart requested' : 'Save & Restart'}
+                </button>
+              </div>
+              <label style={{ ...connectionLabelStyle, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <input
+                  type="checkbox" style={{ marginTop: 5, flexShrink: 0 }}
                   checked={followServerPort && bridgeHttpBase() === window.location.origin}
                   disabled={portBusy || bridgeHttpBase() !== window.location.origin}
                   onChange={(e) => setFollowServerPort(e.target.checked)}
                 />
-                {' '}Open this dashboard at the new port (direct access only; leave off behind a reverse proxy)
+                Open new port after restart
               </label>
-            </Row>
-            <Row label="New Internal Port">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="number" value={serverPortInput} min={1024} max={65535} placeholder="e.g. 9000"
-                  onChange={(e) => { setServerPortInput(e.target.value); setPortStatus(null) }}
-                  style={{ ...inputStyle, width: 100 }} disabled={portBusy}
-                />
-                <button onClick={saveAndRestart} disabled={portBusy || serverPortInput === ''} style={btnStyle}>
-                  {portBusy ? 'Restart requested' : 'Change Server Port & Restart'}
-                </button>
-              </div>
-              {portStatus && <p role="status" style={{ color: colors.textMuted }}>{portStatus}</p>}
-            </Row>
-            <p style={{ fontFamily: fonts.body, fontSize: 15, color: colors.textMuted, margin: 0 }}>
-              Changes the bridge's listening port and disconnects all clients. With Nginx Proxy Manager,
-              also change the upstream port there. The public connection settings and page address stay unchanged unless direct access is selected.
-              For direct access, select the option above or open the new address manually.
-            </p>
-          </Section>
+              <p style={connectionHelpStyle}>
+                Direct access only. Leave unchecked behind a reverse proxy.
+              </p>
+              <p style={connectionHelpStyle}>
+                Changing the server port disconnects all clients. Update the proxy's upstream port afterward.
+                The public address stays unchanged unless the option above is selected.
+              </p>
+              {portStatus && <p role="status" style={connectionHelpStyle}>{portStatus}</p>}
+            </div>
+          </details>
           {/* Theme */}
           <Section title="Theme">
             <Row label="Primary color">
@@ -802,3 +802,15 @@ const inputStyle: React.CSSProperties = {
 
 // Keep compiler happy
 void SETTINGS_DEFAULTS
+
+const connectionLabelStyle: React.CSSProperties = {
+  fontFamily: fonts.body, fontSize: 18, color: colors.text,
+}
+const connectionHelpStyle: React.CSSProperties = {
+  fontFamily: fonts.body, fontSize: 15, lineHeight: 1.4, color: colors.textMuted, margin: '6px 0',
+}
+const connectionButtonStyle: React.CSSProperties = {
+  fontFamily: fonts.body, fontSize: 16, padding: '6px 12px', borderRadius: 4,
+  background: colors.bgWidget, border: `1px solid ${colors.border}`, color: colors.text,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+}
